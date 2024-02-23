@@ -1,0 +1,103 @@
+local m = {}
+m.__index = m
+local settings = require(script.Parent.Settings)
+local tweenservice = game.TweenService
+
+function m.new(startCFrame)
+	local self = setmetatable(m, {})
+	
+	self.Boat = game.ReplicatedStorage.Assets.Boat:Clone()
+	self.Boat:PivotTo(startCFrame)
+	self.Boat.Parent = workspace.Boats
+	
+	self.Seat = self.Boat.Seat
+	
+	return self
+end
+
+function m:Exit(character: Model)
+	local humanoid = character:FindFirstChild("Humanoid")
+	assert(humanoid, "player has no humanoid!")
+
+	humanoid.UseJumpPower = true
+	humanoid.JumpPower = game.StarterPlayer.CharacterJumpPower
+	humanoid.Jump = true
+	self.Seat.Disabled = true
+	humanoid:MoveTo(self.Seat.Position + Vector3.new(-settings.WalkOutDistance,0,0))
+	
+	--//Boat destruction
+	game.Debris:AddItem(self.Boat, 5)
+end
+
+function m:Sit(character: Model)
+	local humanoid = character:FindFirstChild("Humanoid")
+	assert(humanoid, "player has no humanoid!")
+	
+	humanoid.UseJumpPower = true
+	humanoid.JumpPower = 0
+	self.Seat:Sit(humanoid)
+end
+
+function m:MoveTo(frame: CFrame, allignCompletely: boolean)
+	assert(frame, "CFrame was not defined")
+	--assert(seconds, "Seconds were not defined")
+	
+	self.Seat.Anchored = true
+	if settings.BezierMode == false then
+		local ori1,ori2,ori3 = CFrame.lookAt(self.Seat.Position, frame.Position):ToOrientation()
+		local deg = math.deg
+		local rotationGoal = {Orientation = Vector3.new(0,deg(ori2),0)}
+
+		--// boat rotate tween
+		local rotation=tweenservice:Create(self.Seat, TweenInfo.new(settings.SteerTime, settings.BoatEasingStyle, settings.BoatEasingDirection), rotationGoal)
+		task.spawn(function()
+			rotation:Play()
+			rotation.Completed:Wait()
+			self.Seat.Orientation = Vector3.new(0,deg(ori2),0)
+		end)
+		
+		
+		--// moving the boat
+		local startedMovingTick = tick()
+		local distance = 10000
+		repeat task.wait()
+			distance = (frame.Position - self.Seat.Position).Magnitude
+			local lerp = self.Seat.CFrame:Lerp(CFrame.new(self.Seat.Position + self.Seat.CFrame.LookVector*settings.Speed), 0.1)
+			self.Seat.Position = lerp.Position
+		--	print(math.floor(distance))
+		until distance <= settings.DistanceMarkingAsFinished;
+		
+		if allignCompletely then
+			local finishGoal = {CFrame = frame}
+			local finishInfo = TweenInfo.new(1/settings.Speed, settings.BoatEasingStyle, settings.BoatEasingDirection)
+			local finishTween = tweenservice:Create(self.Seat, finishInfo, finishGoal)
+			finishTween:Play()
+		end
+		
+		--t:Play()
+		--if waitUntilFinished then t.Completed:Wait() end
+	else
+		local function createBezier(start, turn, alpha)
+			return start + (turn - start) * alpha
+		end
+			
+		for t = 0, 1, 0.01 do
+			local bezierPosition1 = createBezier(workspace.Moves.start.Position, workspace.Moves.turn1.Position, t)
+			local bezierPosition2 = createBezier(workspace.Moves.turn1.Position, workspace.Moves.turn2.Position, t)
+			local bezierPositionEnd = createBezier(workspace.Moves.turn2.Position, workspace.Moves.finish.Position, t)
+			
+			local start = createBezier(bezierPosition1, bezierPosition2, t)
+			local finish = createBezier(bezierPosition2, bezierPositionEnd, t)
+			
+			local cubic = createBezier(start, finish, t)
+			
+			local cubicLerpCFrame = self.Seat.CFrame:Lerp(CFrame.new(cubic), 0.001)
+			self.Seat:PivotTo(CFrame.lookAt(cubicLerpCFrame.Position, workspace.Moves.finish.Position))
+			
+			task.wait(0.01)
+		end
+	end
+	
+end
+
+return m
